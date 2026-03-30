@@ -5,8 +5,5 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || 'ik_9efccf1
 
 export const insforge = createClient({
   baseUrl: supabaseUrl,
-  appKey: 'fdv7e3sf',     // Explicitly provided for remote connection
-  region: 'us-east',     // Explicitly provided for remote connection
-  anonKey: supabaseAnonKey,
-  isServerMode: typeof window === 'undefined'
+  anonKey: supabaseAnonKey
 });
