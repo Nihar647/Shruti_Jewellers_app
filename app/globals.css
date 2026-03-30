@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #020617;
+    --card: #f8fafc;
+    --card-border: #e2e8f0;
+    --muted: #64748b;
+  }
+
+  .dark {
+    --background: #020617;
+    --foreground: #f8fafc;
+    --card: #0f172a;
+    --card-border: #1e293b;
+    --muted: #94a3b8;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    transition-property: background-color, color;
+    transition-duration: 300ms;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-serif);
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-[#c9a84c] via-[#e2c77d] to-[#c9a84c];
+    background-size: 200% auto;
+    animation: shine 3s linear infinite;
+  }
+
+  @keyframes shine {
+    to { background-position: 200% center; }
+  }
+
+  .nav-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-medium;
+    color: var(--muted);
+  }
+
+  .nav-link:hover {
+    @apply bg-[#c9a84c]/10 text-[#c9a84c];
+  }
+
+  .nav-link.active {
+    @apply bg-[#c9a84c] text-white shadow-lg shadow-[#c9a84c]/20;
+  }
+}
+
+/* Custom print styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
