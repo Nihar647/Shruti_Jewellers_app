@@ -46,7 +46,7 @@ export default function ProfilePage() {
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
-      const { error: uploadError } = await insforge.storage
+      const { data: uploadData, error: uploadError } = await insforge.storage
         .from("user-profiles")
         .upload(filePath, file);
 
@@ -54,11 +54,9 @@ export default function ProfilePage() {
         throw uploadError;
       }
 
-      const { data } = insforge.storage
-        .from("user-profiles")
-        .getPublicUrl(filePath);
-
-      setAvatarUrl(data.publicUrl);
+      if (uploadData?.url) {
+        setAvatarUrl(uploadData.url);
+      }
     } catch (error) {
       alert("Error uploading image!");
       console.error(error);
