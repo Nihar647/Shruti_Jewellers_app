@@ -1,4 +1,4 @@
-import { insforge } from '@/lib/insforge';
+import { supabase } from '@/lib/supabase';
 
 export interface BillItem {
   id: string;
@@ -23,7 +23,7 @@ export interface Bill {
 let billsCache: Bill[] = [];
 
 export const getBills = async (): Promise<Bill[]> => {
-  const { data, error } = await insforge.database
+  const { data, error } = await supabase
     .from('bills')
     .select('*, items(*)');
   
@@ -62,7 +62,7 @@ export const getBills = async (): Promise<Bill[]> => {
 
 export const saveBill = async (bill: Bill) => {
   // 1. Insert Bill
-  const { data: billData, error: billError } = await insforge.database
+  const { data: billData, error: billError } = await supabase
     .from('bills')
     .insert([{
       id: bill.id,
@@ -90,7 +90,7 @@ export const saveBill = async (bill: Bill) => {
     note: item.note
   }));
 
-  const { error: itemsError } = await insforge.database
+  const { error: itemsError } = await supabase
     .from('items')
     .insert(itemsToInsert);
 
@@ -103,7 +103,7 @@ export const saveBill = async (bill: Bill) => {
 };
 
 export const deleteBill = async (id: string) => {
-  const { error } = await insforge.database
+  const { error } = await supabase
     .from('bills')
     .delete()
     .eq('id', id);

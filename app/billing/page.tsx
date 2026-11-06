@@ -15,7 +15,7 @@ export default function BillingPage() {
   ]);
   const [isSaved, setIsSaved] = useState(false);
   const [generatedBill, setGeneratedBill] = useState<Bill | null>(null);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   const addItem = () => {
     setItems([
@@ -45,7 +45,9 @@ export default function BillingPage() {
     }));
   };
 
-  const totalAmount = items.reduce((sum, item) => sum + item.cost, 0);
+  const subTotal = items.reduce((sum, item) => sum + item.cost, 0);
+  const gstAmount = Math.round(subTotal * 0.03);
+  const grandTotal = subTotal + gstAmount;
 
   const handleSaveBill = async () => {
     if (!customerName.trim() || items.some(i => !i.itemName.trim() || i.weight <= 0 || i.rate <= 0)) {
@@ -59,7 +61,7 @@ export default function BillingPage() {
       customerName,
       customerPhone,
       note,
-      totalAmount,
+      totalAmount: grandTotal,
       items
     };
 
@@ -82,38 +84,93 @@ export default function BillingPage() {
     setIsSaved(false);
   };
 
-  const downloadPDF = async () => {
+  const generateImageBlob = async (): Promise<Blob | null> => {
     const input = document.getElementById("printable-bill");
-    if (!input) return;
+    if (!input) return null;
 
-    setIsGeneratingPDF(true);
     try {
       const canvas = await html2canvas(input, {
-        scale: 2,
+        scale: 3, // crisp high resolution photo
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff"
       });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-      
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`Bill_${generatedBill?.customerName || "Customer"}_${new Date().getTime()}.pdf`);
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), "image/png", 0.95);
+      });
     } catch (error) {
-      console.error("PDF Generation failed", error);
+      console.error("Image generation failed", error);
+      return null;
+    }
+  };
+
+  const downloadPhoto = async () => {
+    const input = document.getElementById("printable-bill");
+    if (!input) return;
+
+    setIsGeneratingImage(true);
+    try {
+      const blob = await generateImageBlob();
+      if (!blob) return;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Bill_${generatedBill?.customerName || "Customer"}_${new Date().getTime()}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Photo download failed", error);
     } finally {
-      setIsGeneratingPDF(false);
+      setIsGeneratingImage(false);
     }
   };
 
   const shareOnWhatsApp = async () => {
-    await downloadPDF();
-    if (generatedBill?.customerPhone) {
-      const text = encodeURIComponent(`Hello ${generatedBill.customerName},\n\nYour bill from *Shruti Jewellers* (GSTIN: BRKPK3023K) has been generated.\n\nTotal Amount: ₹${generatedBill.totalAmount.toLocaleString('en-IN')}\n\nPlease check the attached PDF for details.\n\nThank you for shopping with us!`);
+    if (!generatedBill || !generatedBill.customerPhone) return;
+
+    setIsGeneratingImage(true);
+    try {
+      const imageBlob = await generateImageBlob();
+      if (!imageBlob) throw new Error("Failed to capture bill photo");
+
+      const fileName = `Bill_${generatedBill.customerName.replace(/\s+/g, '_')}_${new Date().getTime()}.png`;
+      const imageFile = new File([imageBlob], fileName, { type: "image/png" });
+
+      // 1. Copy photo to Clipboard automatically (so you can just Cmd+V into WhatsApp)
+      try {
+        if (navigator.clipboard && window.ClipboardItem) {
+          await navigator.clipboard.write([
+            new ClipboardItem({ "image/png": imageBlob })
+          ]);
+        }
+      } catch (clipErr) {
+        console.warn("Clipboard copy not allowed:", clipErr);
+      }
+
+      // 2. Download the photo to your Mac
+      const url = URL.createObjectURL(imageBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      // 3. Open WhatsApp Web directly with the customer chat and pre-filled message
+      const text = encodeURIComponent(
+        `Hello ${generatedBill.customerName},\n\n` +
+        `Your bill from *Shruti Jewellers* (GSTIN: BRKPK3023K) has been generated.\n\n` +
+        `*Grand Total: ₹${generatedBill.totalAmount.toLocaleString('en-IN')}*\n\n` +
+        `Thank you for shopping with us! 🙏`
+      );
+
       window.open(`https://wa.me/91${generatedBill.customerPhone}?text=${text}`, "_blank");
+
+    } catch (error: any) {
+      console.error("WhatsApp share failed:", error);
+      alert(`❌ Failed: ${error.message}`);
+    } finally {
+      setIsGeneratingImage(false);
     }
   };
 
@@ -243,10 +300,24 @@ export default function BillingPage() {
       </div>
 
       <div className="glass-panel p-6 flex flex-col md:flex-row justify-between items-center gap-4 mt-6">
-        <div>
-          <div className="text-sm text-muted">Total Net Amount</div>
-          <div className="text-3xl font-bold text-foreground">
-            ₹{totalAmount.toLocaleString('en-IN')}
+        <div className="flex flex-wrap items-center gap-6">
+          <div>
+            <div className="text-xs text-muted">Items Subtotal</div>
+            <div className="text-lg font-medium text-foreground">
+              ₹{subTotal.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div className="border-l border-card-border pl-6">
+            <div className="text-xs text-muted">GST (3%)</div>
+            <div className="text-lg font-medium text-[#c9a84c]">
+              +₹{gstAmount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div className="border-l border-card-border pl-6">
+            <div className="text-xs text-muted font-bold uppercase tracking-wider text-[#c9a84c]">Grand Total</div>
+            <div className="text-3xl font-bold text-foreground">
+              ₹{grandTotal.toLocaleString('en-IN')}
+            </div>
           </div>
         </div>
 
@@ -279,63 +350,151 @@ export default function BillingPage() {
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 bg-white print:bg-white text-black" id="printable-bill">
-              <div className="text-center mb-6">
-                <h2 className="text-2xl font-serif font-bold text-black border-b-2 border-black pb-2 mb-2 inline-block px-8 tracking-widest leading-none">TAX INVOICE</h2>
-                <div className="text-sm text-gray-700 font-bold tracking-widest mt-1">SHRUTI JEWELLERS</div>
-                <div className="text-xs text-gray-500 mt-1 uppercase">GSTIN: BRKPK3023K</div>
+              {/* Top Header */}
+              <div className="flex justify-between items-start pb-4 border-b-2 border-black gap-4">
+                {/* Top Left: Logo & Brand */}
+                <div className="flex items-center gap-3">
+                  <img 
+                    src="/logo.png" 
+                    alt="Shruti Jewellers Logo" 
+                    className="w-16 h-16 object-contain"
+                  />
+                  <div>
+                    <h1 className="text-xl font-serif font-black tracking-wider text-black leading-tight">SHRUTI JEWELLERS</h1>
+                    <p className="text-[11px] font-semibold text-gray-700 tracking-wide">Prop: Vimal Soni</p>
+                    <p className="text-[10px] text-gray-500 font-mono">GSTIN: BRKPK3023K</p>
+                  </div>
+                </div>
+
+                {/* Top Right: Contact & Address */}
+                <div className="text-right text-xs text-gray-700 space-y-0.5">
+                  <div className="font-semibold text-gray-900 flex items-center justify-end gap-1">
+                    <span>📞</span>
+                    <span>+91 90575 83546</span>
+                  </div>
+                  <div className="font-semibold text-gray-900 pl-4">
+                    +91 94147 77499
+                  </div>
+                  <div className="text-[11px] text-gray-600 leading-tight pt-1">
+                    Rawla Chowk, Bhadesar<br />
+                    Chittorgarh, Rajasthan
+                  </div>
+                </div>
               </div>
 
-              <div className="flex justify-between text-sm mb-6 border-b border-gray-200 pb-4">
+              {/* Invoice Title Bar */}
+              <div className="text-center my-3">
+                <span className="text-xs font-bold uppercase tracking-widest bg-black text-white px-4 py-1 rounded">
+                  ESTIMATE / TAX INVOICE
+                </span>
+              </div>
+
+              {/* Billed To & Bill Details */}
+              <div className="flex justify-between text-xs mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded">
                 <div>
-                  <div className="text-gray-500 text-xs">Billed To:</div>
-                  <div className="font-bold text-base mt-1">{generatedBill.customerName}</div>
-                  {generatedBill.customerPhone && <div className="text-gray-600 font-mono text-xs mt-1">Ph: {generatedBill.customerPhone}</div>}
+                  <div className="text-gray-500 uppercase font-semibold text-[10px]">Billed To:</div>
+                  <div className="font-bold text-sm text-gray-900 mt-0.5">{generatedBill.customerName}</div>
+                  {generatedBill.customerPhone && (
+                    <div className="text-gray-600 font-mono text-[11px] mt-0.5">Ph: +91 {generatedBill.customerPhone}</div>
+                  )}
                 </div>
                 <div className="text-right">
-                  <div className="text-gray-500 text-xs">Bill Index:</div>
-                  <div className="font-mono text-xs mt-1 font-semibold uppercase">ID-{generatedBill.id.split('-')[0]}</div>
-                  <div className="text-xs mt-1 text-gray-600">{new Date(generatedBill.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  <div className="text-gray-500 uppercase font-semibold text-[10px]">Invoice Details:</div>
+                  <div className="font-mono text-xs font-bold text-gray-900 mt-0.5">
+                    INV-{generatedBill.id.split('-')[0].toUpperCase()}
+                  </div>
+                  <div className="text-gray-600 text-[11px] mt-0.5">
+                    Date: {new Date(generatedBill.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </div>
                 </div>
               </div>
 
-              <table className="w-full text-sm mb-6">
-                <thead>
-                  <tr className="border-b-2 border-gray-300 text-left text-xs uppercase text-gray-500 tracking-wider">
-                    <th className="py-2 font-semibold">Description</th>
-                    <th className="py-2 text-right font-semibold w-20">Weight</th>
-                    <th className="py-2 text-right font-semibold w-24">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {generatedBill.items.map((item, idx) => (
-                    <tr key={idx} className="border-b border-gray-100">
-                      <td className="py-3">
-                        <div className="font-medium text-gray-800">{item.itemName}</div>
-                        {item.note && <div className="text-[10px] text-gray-400 italic mt-0.5">{item.note}</div>}
-                      </td>
-                      <td className="py-3 text-right text-gray-600 font-medium">
-                        {item.weight}g <br/>
-                        <span className="text-[10px] text-gray-400 font-normal">@₹{item.rate}/g</span>
-                      </td>
-                      <td className="py-3 text-right font-bold text-gray-900">₹{item.cost.toLocaleString('en-IN')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* Single Organised Table with Items, Subtotal, GST, and Grand Total */}
+              {(() => {
+                const billSubTotal = generatedBill.items.reduce((s, i) => s + i.cost, 0);
+                const billGST = Math.round(billSubTotal * 0.03);
+                const billGrandTotal = billSubTotal + billGST;
 
-              <div className="flex justify-between items-center border-t-2 border-black pt-4 mb-2">
-                <div className="font-bold text-lg leading-none uppercase tracking-wide">Grand Total</div>
-                <div className="font-bold text-2xl text-black">₹{generatedBill.totalAmount.toLocaleString('en-IN')}</div>
-              </div>
+                return (
+                  <div className="border border-black mb-4 overflow-hidden rounded-sm">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 border-b border-black text-gray-800 uppercase font-bold text-[11px]">
+                          <th className="py-2.5 px-2 text-center w-10 border-r border-black">#</th>
+                          <th className="py-2.5 px-3 text-left border-r border-black">Item Description</th>
+                          <th className="py-2.5 px-2 text-right w-24 border-r border-black">Rate (₹/g)</th>
+                          <th className="py-2.5 px-2 text-right w-20 border-r border-black">Weight</th>
+                          <th className="py-2.5 px-3 text-right w-28">Amount (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {generatedBill.items.map((item, idx) => (
+                          <tr key={idx} className="border-b border-gray-300">
+                            <td className="py-2 px-2 text-center text-gray-600 border-r border-black">{idx + 1}</td>
+                            <td className="py-2 px-3 border-r border-black">
+                              <div className="font-medium text-gray-900">{item.itemName}</div>
+                              {item.note && <div className="text-[10px] text-gray-500 italic">{item.note}</div>}
+                            </td>
+                            <td className="py-2 px-2 text-right text-gray-700 font-mono border-r border-black">
+                              ₹{item.rate.toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-2 px-2 text-right text-gray-700 font-mono border-r border-black">
+                              {item.weight} g
+                            </td>
+                            <td className="py-2 px-3 text-right font-semibold text-gray-900 font-mono">
+                              ₹{item.cost.toLocaleString('en-IN')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        {/* Subtotal Row */}
+                        <tr className="border-t border-black bg-gray-50/70">
+                          <td colSpan={4} className="py-2 px-3 text-right font-semibold text-gray-700 border-r border-black">
+                            Subtotal
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold font-mono text-gray-900">
+                            ₹{billSubTotal.toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+
+                        {/* GST (3%) Row */}
+                        <tr className="border-t border-gray-300 bg-gray-50/70">
+                          <td colSpan={4} className="py-2 px-3 text-right font-semibold text-gray-700 border-r border-black">
+                            GST (3%)
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold font-mono text-gray-900">
+                            + ₹{billGST.toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+
+                        {/* Grand Total Row */}
+                        <tr className="border-t-2 border-black bg-black text-white">
+                          <td colSpan={4} className="py-2.5 px-3 text-right font-bold uppercase tracking-wider text-xs border-r border-gray-700">
+                            Grand Total
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold font-mono text-sm text-white">
+                            ₹{billGrandTotal.toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                );
+              })()}
 
               {generatedBill.note && (
-                <div className="mt-4 p-3 bg-gray-50 border-l-4 border-gray-300">
-                  <div className="text-[10px] uppercase font-bold text-gray-500 mb-1">NOTES</div>
-                  <div className="text-xs text-gray-700 whitespace-pre-wrap">{generatedBill.note}</div>
+                <div className="mb-4 p-2.5 bg-gray-50 border-l-4 border-black text-xs">
+                  <div className="text-[10px] uppercase font-bold text-gray-600 mb-0.5">Notes:</div>
+                  <div className="text-gray-800 whitespace-pre-wrap">{generatedBill.note}</div>
                 </div>
               )}
 
-              <div className="text-center text-xs text-gray-500 mt-10 italic border-t border-gray-200 pt-4">Authentic Jewellery Since 2024. Thank you for your business!</div>
+              {/* Footer */}
+              <div className="pt-3 border-t border-gray-200 text-center text-[11px] text-gray-500">
+                <p className="font-semibold text-gray-700">Shruti Jewellers • Rawla Chowk, Bhadesar</p>
+                <p className="italic text-[10px] mt-0.5">Authentic Hallmark Jewellery. Thank you for your business!</p>
+              </div>
             </div>
 
             <div className="p-4 border-t border-card-border bg-card rounded-b-xl flex flex-wrap gap-3 justify-end">
@@ -347,20 +506,21 @@ export default function BillingPage() {
               </button>
               
               <button 
-                onClick={downloadPDF}
-                disabled={isGeneratingPDF}
+                onClick={downloadPhoto}
+                disabled={isGeneratingImage}
                 className="flex flex-1 md:flex-none items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
               >
-                {isGeneratingPDF ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Download className="w-4 h-4" />}
-                Download PDF
+                {isGeneratingImage ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Download className="w-4 h-4" />}
+                Download Photo
               </button>
               
               {generatedBill.customerPhone && (
                 <button 
                   onClick={shareOnWhatsApp}
-                  className="flex flex-1 md:flex-none items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
+                  disabled={isGeneratingImage}
+                  className="flex flex-1 md:flex-none items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
                 >
-                  <Send className="w-4 h-4" /> WhatsApp PDF
+                  <Send className="w-4 h-4" /> WhatsApp Photo
                 </button>
               )}
 
