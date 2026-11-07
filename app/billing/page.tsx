@@ -89,11 +89,31 @@ export default function BillingPage() {
     if (!input) return null;
 
     try {
+      // Force capturing the full element height and width even if the modal has scrollbars
+      const fullWidth = input.scrollWidth;
+      const fullHeight = input.scrollHeight;
+
       const canvas = await html2canvas(input, {
         scale: 3, // crisp high resolution photo
         useCORS: true,
         logging: false,
-        backgroundColor: "#ffffff"
+        backgroundColor: "#ffffff",
+        width: fullWidth,
+        height: fullHeight,
+        windowWidth: fullWidth,
+        windowHeight: fullHeight,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.getElementById("printable-bill");
+          if (clonedElement) {
+            clonedElement.style.overflow = "visible";
+            clonedElement.style.maxHeight = "none";
+            clonedElement.style.height = "auto";
+          }
+        }
       });
       return new Promise((resolve) => {
         canvas.toBlob((blob) => resolve(blob), "image/png", 0.95);
@@ -135,9 +155,8 @@ export default function BillingPage() {
       if (!imageBlob) throw new Error("Failed to capture bill photo");
 
       const fileName = `Bill_${generatedBill.customerName.replace(/\s+/g, '_')}_${new Date().getTime()}.png`;
-      const imageFile = new File([imageBlob], fileName, { type: "image/png" });
 
-      // 1. Copy photo to Clipboard automatically (so you can just Cmd+V into WhatsApp)
+      // 1. Copy photo to Clipboard automatically (so you can just Cmd+V / Ctrl+V into WhatsApp)
       try {
         if (navigator.clipboard && window.ClipboardItem) {
           await navigator.clipboard.write([
@@ -148,7 +167,7 @@ export default function BillingPage() {
         console.warn("Clipboard copy not allowed:", clipErr);
       }
 
-      // 2. Download the photo to your Mac
+      // 2. Download the full photo to your device
       const url = URL.createObjectURL(imageBlob);
       const a = document.createElement("a");
       a.href = url;
@@ -156,7 +175,11 @@ export default function BillingPage() {
       a.click();
       URL.revokeObjectURL(url);
 
-      // 3. Open WhatsApp Web directly with the customer chat and pre-filled message
+      // Clean phone number (strip spaces, dashes, +)
+      const cleanPhone = generatedBill.customerPhone.replace(/[^0-9]/g, '');
+      const phoneWithCountry = cleanPhone.startsWith('91') && cleanPhone.length > 10 ? cleanPhone : `91${cleanPhone}`;
+
+      // 3. Open WhatsApp Web directly to skip intermediate "Continue to WhatsApp Web" landing page
       const text = encodeURIComponent(
         `Hello ${generatedBill.customerName},\n\n` +
         `Your bill from *Shruti Jewellers* (GSTIN: BRKPK3023K) has been generated.\n\n` +
@@ -164,7 +187,8 @@ export default function BillingPage() {
         `Thank you for shopping with us! 🙏`
       );
 
-      window.open(`https://wa.me/91${generatedBill.customerPhone}?text=${text}`, "_blank");
+      // Using a named target 'whatsapp_web' reuses the existing WhatsApp tab instead of creating endless new tabs
+      window.open(`https://web.whatsapp.com/send?phone=${phoneWithCountry}&text=${text}`, "whatsapp_web");
 
     } catch (error: any) {
       console.error("WhatsApp share failed:", error);
@@ -384,8 +408,8 @@ export default function BillingPage() {
 
               {/* Invoice Title Bar */}
               <div className="text-center my-3">
-                <span className="text-xs font-bold uppercase tracking-widest bg-black text-white px-4 py-1 rounded">
-                  ESTIMATE / TAX INVOICE
+                <span className="text-sm font-serif font-black uppercase tracking-[0.25em] text-gray-900 border-b-2 border-black pb-0.5 inline-block px-4">
+                  INVOICE
                 </span>
               </div>
 
@@ -468,12 +492,12 @@ export default function BillingPage() {
                           </td>
                         </tr>
 
-                        {/* Grand Total Row */}
-                        <tr className="border-t-2 border-black bg-black text-white">
-                          <td colSpan={4} className="py-2.5 px-3 text-right font-bold uppercase tracking-wider text-xs border-r border-gray-700">
+                        {/* Grand Total Row (Clean border styling, no black background) */}
+                        <tr className="border-t-2 border-b border-black bg-gray-100">
+                          <td colSpan={4} className="py-2.5 px-3 text-right font-black uppercase tracking-wider text-xs border-r border-black text-gray-900">
                             Grand Total
                           </td>
-                          <td className="py-2.5 px-3 text-right font-bold font-mono text-sm text-white">
+                          <td className="py-2.5 px-3 text-right font-black font-mono text-base text-gray-950">
                             ₹{billGrandTotal.toLocaleString('en-IN')}
                           </td>
                         </tr>
